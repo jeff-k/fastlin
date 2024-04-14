@@ -13,7 +13,7 @@ mod input_files;
 use input_files::get_input_files;
 
 mod analyse_sample;
-use analyse_sample::{scan_fasta, scan_reads};
+use analyse_sample::scan_reads;
 
 mod process_barcodes;
 use process_barcodes::process_barcodes;
@@ -47,7 +47,7 @@ struct Args {
 
     /// maximum kmer coverage
     #[arg(short = 'x', long)]
-    max_cov: Option<i64>,
+    max_cov: Option<u64>,
 }
 
 #[derive(PartialEq)]
@@ -146,30 +146,21 @@ fn main() {
         pb.inc(1);
 
         // get sequencing type ('single' or 'paired' reads)
-
         let data_type = get_data_type(sample.to_string(), list_files.to_vec());
 
-        match &data_type {
+        let (barcode_found, coverage, error_message, min_count) = match &data_type {
             InputType::Assembly => {
-                // analyse genome
-                let (barcode_found, error_message) =
-                    scan_fasta(list_files.to_vec(), barcodes.to_owned(), &args.kmer_size);
+                let (barcode_found, _, error_message) = scan_reads(
+                    list_files.to_vec(),
+                    barcodes.to_owned(),
+                    &args.kmer_size,
+                    None,
+                    genome_size,
+                );
 
-                // process barcodes
-                let (lineages, mixture, string_occurences) =
-                    process_barcodes(barcode_found, 1, args.n_barcodes);
-
-                // write sample info into output file
-                #[allow(clippy::write_literal)]
-                writeln!(
-                    output_file,
-                    "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                    sample, data_type, "1", mixture, lineages, string_occurences, error_message
-                )
-                .expect("Failed to write to file");
+                (barcode_found, 1, error_message, 1)
             }
             InputType::Single | InputType::Paired => {
-                // analyse reads
                 let (barcode_found, coverage, error_message) = scan_reads(
                     list_files.to_vec(),
                     barcodes.to_owned(),
@@ -177,26 +168,27 @@ fn main() {
                     kmer_limit,
                     genome_size,
                 );
-
-                // process barcodes
-                let (lineages, mixture, string_occurences) =
-                    process_barcodes(barcode_found, args.min_count, args.n_barcodes);
-
-                // write sample info into output file
-                writeln!(
-                    output_file,
-                    "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                    sample,
-                    data_type,
-                    coverage,
-                    mixture,
-                    lineages,
-                    string_occurences,
-                    error_message
-                )
-                .expect("Failed to write to file");
+                (barcode_found, coverage, error_message, args.min_count)
             }
-        }
+        };
+
+        // process barcodes
+        let (lineages, mixture, string_occurences) =
+            process_barcodes(barcode_found, min_count, args.n_barcodes);
+
+        // write sample info into output file
+        writeln!(
+            output_file,
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            sample,
+            data_type,
+            coverage, // should just be 1 if assembly
+            mixture,
+            lineages,
+            string_occurences,
+            error_message
+        )
+        .expect("Failed to write to file");
     }
 
     println!("   done.");

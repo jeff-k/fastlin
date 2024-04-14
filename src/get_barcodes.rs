@@ -2,7 +2,11 @@ use std::collections::HashMap;
 use std::fs::read_to_string;
 use std::path::PathBuf;
 
-pub fn get_barcodes(file_name: PathBuf, kmer_size: &u8) -> (HashMap<String, String>, i64) {
+pub fn get_barcodes(file_name: PathBuf, kmer_size: &u8) -> (HashMap<String, String>, u64) {
+    barcodes(read_to_string(file_name).unwrap(), kmer_size)
+}
+
+pub fn barcodes(barcode_csv: String, kmer_size: &u8) -> (HashMap<String, String>, u64) {
     print!(" . get barcodes and genome size");
 
     // convert kmer_size to usize and calculate half kmer size
@@ -11,18 +15,17 @@ pub fn get_barcodes(file_name: PathBuf, kmer_size: &u8) -> (HashMap<String, Stri
 
     // initialise Hashmap and genome size
     let mut barcodes_id: HashMap<String, String> = HashMap::default();
-    let mut genome_size = 0;
+    let mut genome_size: u64 = 0;
 
     // read barcode file
     let mut counter = 0;
-    let csv = read_to_string(file_name).unwrap();
-    for l in csv.lines() {
+    for l in barcode_csv.lines() {
         let inserts = l.split('\t');
         let collection = inserts.collect::<Vec<&str>>();
 
         if collection[0] == "genome_size" {
             // convert str to integer
-            let parsed_result = collection[1].parse::<i64>();
+            let parsed_result = collection[1].parse::<u64>();
             // check if the conversion was successful
             match parsed_result {
                 Ok(parsed_number) => genome_size = parsed_number,

@@ -6,13 +6,26 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::str;
 
+pub fn get_reader(path: &PathBuf) -> Box<dyn BufRead + Send> {
+    let filename_str = path.to_str().unwrap();
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) => panic!("Error opening compressed file: {:?}.", error),
+    };
+    if filename_str.ends_with(".gz") {
+        Box::new(BufReader::new(MultiGzDecoder::new(file)))
+    } else {
+        Box::new(BufReader::new(file))
+    }
+}
+
 pub fn scan_reads(
     mut vect_files: Vec<PathBuf>,
     barcodes: HashMap<String, String>,
     k_size: &u8,
-    kmer_limit: Option<i64>,
-    genome_size: i64,
-) -> (HashMap<String, i32>, i32, String) {
+    kmer_limit: Option<u64>,
+    genome_size: u64,
+) -> (HashMap<String, i32>, u32, String) {
     // initialise kmer size
     let k = *k_size as usize;
 
@@ -20,7 +33,7 @@ pub fn scan_reads(
     vect_files.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
 
     let mut result_barcodes: HashMap<String, i32> = HashMap::new();
-    let mut kmer_counter: i64 = 0;
+    let mut kmer_counter: u64 = 0;
     let mut error_message: String = String::new();
 
     'label_loop: for filename in vect_files {
@@ -71,7 +84,7 @@ pub fn scan_reads(
                     }
                 }
                 // update kmer counter
-                let nb_kmers = (seq.len() - k) as i64;
+                let nb_kmers = (seq.len() - k) as u64;
                 kmer_counter += nb_kmers;
 
                 if let Some(max_kmers) = kmer_limit {
@@ -84,29 +97,7 @@ pub fn scan_reads(
         }
     }
     // compute kmer coverage
-    let coverage = (kmer_counter as f64 / genome_size as f64).round() as i32;
+    let coverage = (kmer_counter as f64 / genome_size as f64).round() as u32;
 
     (result_barcodes, coverage, error_message)
-}
-
-pub fn scan_fasta(
-    vect_files: Vec<PathBuf>,
-    barcodes: HashMap<String, String>,
-    k_size: &u8,
-) -> (HashMap<String, i32>, String) {
-    let (result_barcodes, _, error_message) = scan_reads(vect_files, barcodes, k_size, None, 1);
-    (result_barcodes, error_message)
-}
-
-pub fn get_reader(path: &PathBuf) -> Box<dyn BufRead + Send> {
-    let filename_str = path.to_str().unwrap();
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(error) => panic!("Error opening compressed file: {:?}.", error),
-    };
-    if filename_str.ends_with(".gz") {
-        Box::new(BufReader::new(MultiGzDecoder::new(file)))
-    } else {
-        Box::new(BufReader::new(file))
-    }
 }
