@@ -3,12 +3,14 @@ use std::fs::read_to_string;
 use std::path::PathBuf;
 
 pub fn get_barcodes(file_name: PathBuf, kmer_size: &u8) -> (HashMap<String, String>, u64) {
-    barcodes(read_to_string(file_name).unwrap(), kmer_size)
+    print!(" . get barcodes and genome size");
+    barcodes(read_to_string(file_name).unwrap(), kmer_size).unwrap()
 }
 
-pub fn barcodes(barcode_csv: String, kmer_size: &u8) -> (HashMap<String, String>, u64) {
-    print!(" . get barcodes and genome size");
-
+pub fn barcodes(
+    barcode_csv: String,
+    kmer_size: &u8,
+) -> Result<(HashMap<String, String>, u64), String> {
     // convert kmer_size to usize and calculate half kmer size
     let k = *kmer_size as usize;
     let half_k_size: usize = (k - 1) / 2;
@@ -30,7 +32,7 @@ pub fn barcodes(barcode_csv: String, kmer_size: &u8) -> (HashMap<String, String>
             match parsed_result {
                 Ok(parsed_number) => genome_size = parsed_number,
                 Err(_) => {
-                    panic!("Failed to read the genome size in barcode file")
+                    return Err("Failed to read the genome size in barcode file".to_string());
                 }
             }
         } else {
@@ -58,7 +60,7 @@ pub fn barcodes(barcode_csv: String, kmer_size: &u8) -> (HashMap<String, String>
     //println!("	({} barcodes and genome size {})", counter, genome_size);
     println!("	({} barcodes)", counter);
 
-    (barcodes_id, genome_size)
+    Ok((barcodes_id, genome_size))
 }
 
 fn revcomp(seq: &str) -> String {
