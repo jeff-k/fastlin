@@ -19,10 +19,7 @@ pub fn process_barcodes(
     let vect_lineages = non_inclusive_lineages(filtered_lineages);
 
     // check if mixture of lineages
-    let mut mixture = "no";
-    if vect_lineages.len() > 1 {
-        mixture = "yes";
-    }
+    let mixture = if vect_lineages.len() > 1 { "yes" } else { "no" };
 
     // convert to String
     let formatted_lineages: Vec<String> = vect_lineages

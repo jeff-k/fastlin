@@ -1,5 +1,6 @@
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
+use std::fmt;
 use std::fs::File;
 use std::io::Write;
 use std::str;
@@ -11,11 +12,8 @@ use get_barcodes::get_barcodes;
 mod input_files;
 use input_files::get_input_files;
 
-mod analyse_sample_fastq;
-use analyse_sample_fastq::scan_reads;
-
-mod analyse_sample_fasta;
-use analyse_sample_fasta::scan_fasta;
+mod analyse_sample;
+use analyse_sample::{scan_fasta, scan_reads};
 
 mod process_barcodes;
 use process_barcodes::process_barcodes;
@@ -52,8 +50,24 @@ struct Args {
     max_cov: Option<i64>,
 }
 
-#[allow(unused_assignments)]
-fn get_data_type(name_sample: String, vec_files: Vec<PathBuf>) -> String {
+#[derive(PartialEq)]
+enum InputType {
+    Assembly,
+    Single,
+    Paired,
+}
+
+impl fmt::Display for InputType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            InputType::Assembly => write!(f, "assembly"),
+            InputType::Single => write!(f, "single"),
+            InputType::Paired => write!(f, "paired"),
+        }
+    }
+}
+
+fn get_data_type(name_sample: String, vec_files: Vec<PathBuf>) -> InputType {
     // depending on the number of files, returns 'single', 'paired' or exit with error message
 
     let mut count_fasta = 0;
@@ -69,13 +83,12 @@ fn get_data_type(name_sample: String, vec_files: Vec<PathBuf>) -> String {
         }
     }
 
-    let mut result = "";
     if count_fasta == 1 && count_fastq == 0 {
-        result = "assembly";
+        InputType::Assembly
     } else if count_fasta == 0 && count_fastq == 1 {
-        result = "single";
+        InputType::Single
     } else if count_fasta == 0 && count_fastq == 2 {
-        result = "paired";
+        InputType::Paired
     } else {
         eprintln!(
             "error: the sample {} has {} fasta and {} fastq files",
@@ -83,7 +96,6 @@ fn get_data_type(name_sample: String, vec_files: Vec<PathBuf>) -> String {
         );
         process::abort();
     }
-    result.to_string()
 }
 
 fn main() {
@@ -103,13 +115,8 @@ fn main() {
     // get reference barcodes
     let (barcodes, genome_size) = get_barcodes((&args.barcodes).into(), &args.kmer_size);
 
-    // calculate maximum number of kmers to extract (and limit_kmer = true if such limit exists)
-    let mut max_kmers = 0;
-    let mut limit_kmer = false;
-    if let Some(value) = args.max_cov {
-        max_kmers = genome_size * value;
-        limit_kmer = true;
-    }
+    // calculate maximum number of kmers to extract
+    let kmer_limit = args.max_cov.map(|limit| limit * genome_size);
 
     // get samples and input files
     let all_samples = get_input_files(&args.dir);
@@ -139,47 +146,56 @@ fn main() {
         pb.inc(1);
 
         // get sequencing type ('single' or 'paired' reads)
+
         let data_type = get_data_type(sample.to_string(), list_files.to_vec());
 
-        if data_type == "assembly" {
-            // analyse genome
-            let (barcode_found, error_message) =
-                scan_fasta(list_files.to_vec(), barcodes.to_owned(), &args.kmer_size);
+        match &data_type {
+            InputType::Assembly => {
+                // analyse genome
+                let (barcode_found, error_message) =
+                    scan_fasta(list_files.to_vec(), barcodes.to_owned(), &args.kmer_size);
 
-            // process barcodes
-            let (lineages, mixture, string_occurences) =
-                process_barcodes(barcode_found, 1, args.n_barcodes);
+                // process barcodes
+                let (lineages, mixture, string_occurences) =
+                    process_barcodes(barcode_found, 1, args.n_barcodes);
 
-            // write sample info into output file
-            #[allow(clippy::write_literal)]
-            writeln!(
-                output_file,
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                sample, data_type, "1", mixture, lineages, string_occurences, error_message
-            )
-            .expect("Failed to write to file");
-        } else if data_type == "single" || data_type == "paired" {
-            // analyse reads
-            let (barcode_found, coverage, error_message) = scan_reads(
-                list_files.to_vec(),
-                barcodes.to_owned(),
-                &args.kmer_size,
-                limit_kmer,
-                max_kmers,
-                genome_size,
-            );
+                // write sample info into output file
+                #[allow(clippy::write_literal)]
+                writeln!(
+                    output_file,
+                    "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                    sample, data_type, "1", mixture, lineages, string_occurences, error_message
+                )
+                .expect("Failed to write to file");
+            }
+            InputType::Single | InputType::Paired => {
+                // analyse reads
+                let (barcode_found, coverage, error_message) = scan_reads(
+                    list_files.to_vec(),
+                    barcodes.to_owned(),
+                    &args.kmer_size,
+                    kmer_limit,
+                    genome_size,
+                );
 
-            // process barcodes
-            let (lineages, mixture, string_occurences) =
-                process_barcodes(barcode_found, args.min_count, args.n_barcodes);
+                // process barcodes
+                let (lineages, mixture, string_occurences) =
+                    process_barcodes(barcode_found, args.min_count, args.n_barcodes);
 
-            // write sample info into output file
-            writeln!(
-                output_file,
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                sample, data_type, coverage, mixture, lineages, string_occurences, error_message
-            )
-            .expect("Failed to write to file");
+                // write sample info into output file
+                writeln!(
+                    output_file,
+                    "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                    sample,
+                    data_type,
+                    coverage,
+                    mixture,
+                    lineages,
+                    string_occurences,
+                    error_message
+                )
+                .expect("Failed to write to file");
+            }
         }
     }
 

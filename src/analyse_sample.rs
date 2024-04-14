@@ -6,11 +6,13 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::str;
 
-pub fn scan_fasta(
+pub fn scan_reads(
     mut vect_files: Vec<PathBuf>,
     barcodes: HashMap<String, String>,
     k_size: &u8,
-) -> (HashMap<String, i32>, String) {
+    kmer_limit: Option<i64>,
+    genome_size: i64,
+) -> (HashMap<String, i32>, i32, String) {
     // initialise kmer size
     let k = *k_size as usize;
 
@@ -18,6 +20,7 @@ pub fn scan_fasta(
     vect_files.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
 
     let mut result_barcodes: HashMap<String, i32> = HashMap::new();
+    let mut kmer_counter: i64 = 0;
     let mut error_message: String = String::new();
 
     'label_loop: for filename in vect_files {
@@ -33,6 +36,7 @@ pub fn scan_fasta(
                 Err(err) => {
                     // re-initialise barcode results (-> no result)
                     result_barcodes = HashMap::new();
+                    kmer_counter = 0;
                     // save error message
                     error_message = format!("Error in file {:?}: {}", filename, err);
                     // stop reading file(s)
@@ -42,6 +46,7 @@ pub fn scan_fasta(
 
             // get sequences and sequence length
             let seq = record_ready.seq();
+            //let len_seq = seq.len();
 
             // only consider sequences long enough to have a kmer
             if seq.len() >= k {
@@ -65,26 +70,43 @@ pub fn scan_fasta(
                         }
                     }
                 }
+                // update kmer counter
+                let nb_kmers = (seq.len() - k) as i64;
+                kmer_counter += nb_kmers;
+
+                if let Some(max_kmers) = kmer_limit {
+                    // stop process if number of maximum kmer coverage reached
+                    if kmer_counter > max_kmers {
+                        break 'label_loop;
+                    }
+                }
             }
         }
     }
+    // compute kmer coverage
+    let coverage = (kmer_counter as f64 / genome_size as f64).round() as i32;
 
+    (result_barcodes, coverage, error_message)
+}
+
+pub fn scan_fasta(
+    vect_files: Vec<PathBuf>,
+    barcodes: HashMap<String, String>,
+    k_size: &u8,
+) -> (HashMap<String, i32>, String) {
+    let (result_barcodes, _, error_message) = scan_reads(vect_files, barcodes, k_size, None, 1);
     (result_barcodes, error_message)
 }
 
-fn get_reader(path: &PathBuf) -> Box<dyn BufRead + Send> {
-    let mut filetype = "unzip";
+pub fn get_reader(path: &PathBuf) -> Box<dyn BufRead + Send> {
     let filename_str = path.to_str().unwrap();
     let file = match File::open(path) {
         Ok(file) => file,
         Err(error) => panic!("Error opening compressed file: {:?}.", error),
     };
     if filename_str.ends_with(".gz") {
-        filetype = "zip";
+        Box::new(BufReader::new(MultiGzDecoder::new(file)))
+    } else {
+        Box::new(BufReader::new(file))
     }
-    let reader: Box<dyn BufRead + Send> = match filetype {
-        "zip" => Box::new(BufReader::new(MultiGzDecoder::new(file))),
-        _ => Box::new(BufReader::new(file)),
-    };
-    reader
 }
