@@ -148,29 +148,21 @@ fn main() {
         // get sequencing type ('single' or 'paired' reads)
         let data_type = get_data_type(sample.to_string(), list_files.to_vec());
 
-        let (barcode_found, coverage, error_message, min_count) = match &data_type {
-            InputType::Assembly => {
-                let (barcode_found, _, error_message) = scan_reads(
-                    list_files.to_vec(),
-                    barcodes.to_owned(),
-                    &args.kmer_size,
-                    None,
-                    genome_size,
-                );
-
-                (barcode_found, 1, error_message, 1)
-            }
-            InputType::Single | InputType::Paired => {
-                let (barcode_found, coverage, error_message) = scan_reads(
-                    list_files.to_vec(),
-                    barcodes.to_owned(),
-                    &args.kmer_size,
-                    kmer_limit,
-                    genome_size,
-                );
-                (barcode_found, coverage, error_message, args.min_count)
-            }
+        let (kmer_limit, min_count) = match &data_type {
+            InputType::Assembly => (None, 1),
+            InputType::Single | InputType::Paired => (kmer_limit, args.min_count),
         };
+
+        // scan input files
+        let (barcode_found, coverage, error_message) = scan_reads(
+            list_files.to_vec(),
+            barcodes.to_owned(),
+            &args.kmer_size,
+            kmer_limit,
+            genome_size,
+        );
+
+        // Note: coverage used to be fixed to 1 for assemblies
 
         // process barcodes
         let (lineages, mixture, string_occurences) =
@@ -180,13 +172,7 @@ fn main() {
         writeln!(
             output_file,
             "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            sample,
-            data_type,
-            coverage, // should just be 1 if assembly
-            mixture,
-            lineages,
-            string_occurences,
-            error_message
+            sample, data_type, coverage, mixture, lineages, string_occurences, error_message
         )
         .expect("Failed to write to file");
     }
