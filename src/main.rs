@@ -3,20 +3,15 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::fmt;
 use std::fs::File;
 use std::io::Write;
-use std::str;
 use std::{path::PathBuf, process};
 
-mod get_barcodes;
-use get_barcodes::get_barcodes;
-
-mod input_files;
-use input_files::get_input_files;
-
 mod analyse_sample;
-use analyse_sample::scan_reads;
+mod barcodes;
+mod input_files;
 
-mod process_barcodes;
-use process_barcodes::process_barcodes;
+use crate::analyse_sample::scan_reads;
+use crate::barcodes::Barcodes;
+use crate::input_files::get_input_files;
 
 #[derive(Parser, Debug)]
 #[command(author = None, version, about = None, long_about = None)]
@@ -35,7 +30,7 @@ struct Args {
 
     /// kmer size
     #[arg(short, long, default_value_t = 25)]
-    kmer_size: u8,
+    kmer_size: usize,
 
     /// minimum number of kmer occurences
     #[arg(short = 'c', long, default_value_t = 4)]
@@ -113,10 +108,10 @@ fn main() {
     }
 
     // get reference barcodes
-    let (barcodes, genome_size) = get_barcodes((&args.barcodes).into(), &args.kmer_size);
+    let barcodes = Barcodes::from_file((&args.barcodes).into(), args.kmer_size).unwrap();
 
     // calculate maximum number of kmers to extract
-    let kmer_limit = args.max_cov.map(|limit| limit * genome_size);
+    let kmer_limit = args.max_cov.map(|limit| limit * barcodes.genome_size);
 
     // get samples and input files
     let all_samples = get_input_files(&args.dir);
@@ -154,19 +149,14 @@ fn main() {
         };
 
         // scan input files
-        let (barcode_found, coverage, error_message) = scan_reads(
-            list_files.to_vec(),
-            barcodes.to_owned(),
-            &args.kmer_size,
-            kmer_limit,
-            genome_size,
-        );
+        let (barcode_found, coverage, error_message) =
+            scan_reads(list_files.to_vec(), &barcodes, kmer_limit);
 
         // Note: coverage used to be fixed to 1 for assemblies
 
         // process barcodes
         let (lineages, mixture, string_occurences) =
-            process_barcodes(barcode_found, min_count, args.n_barcodes);
+            barcodes::process_barcodes(barcode_found, min_count, args.n_barcodes);
 
         // write sample info into output file
         writeln!(
