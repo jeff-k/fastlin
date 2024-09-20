@@ -1,10 +1,13 @@
+//use bio_seq::prelude::*;
+use bio_streams::fastq::Fastq;
 use flate2::read::MultiGzDecoder;
-use seq_io::fastq::{Reader, Record};
+
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::str;
+
+use crate::Barcodes;
 
 pub fn get_reader(path: &PathBuf) -> Box<dyn BufRead + Send> {
     let filename_str = path.to_str().unwrap();
@@ -19,16 +22,16 @@ pub fn get_reader(path: &PathBuf) -> Box<dyn BufRead + Send> {
     }
 }
 
-pub fn process_buffer<R: BufRead>(
-    k: usize,
+pub fn process_buffer<R: BufRead + Unpin>(
     kmer_limit: Option<u64>,
-    barcodes: &HashMap<String, String>,
+    barcodes: &Barcodes,
     result_barcodes: &mut HashMap<String, i32>,
-    mut reader: Reader<R>,
+    reader: Fastq<R>,
 ) -> Result<u64, String> {
     let mut kmer_counter: u64 = 0;
+    let k = barcodes.k;
 
-    while let Some(record) = reader.next() {
+    for record in reader {
         // unwrap record (contains name, sequence and quality)
         let record_ready = match record {
             Ok(record) => record,
@@ -38,31 +41,27 @@ pub fn process_buffer<R: BufRead>(
         };
 
         // get sequences and sequence length
-        let seq = record_ready.seq();
+        let seq = record_ready.seq;
         //let len_seq = seq.len();
 
         // only consider sequences long enough to have a kmer
-        if seq.len() >= k {
-            // extract kmers (slices from Vect seq)
-            for n in 0..(seq.len() - k + 1) {
-                // get slice of Vect[u8]
-                let kmer = &seq[n..n + k];
-
-                // convert Vect[u8] into String
-                let seq_kmer = unsafe { str::from_utf8_unchecked(kmer) };
-
-                // check if kmer is known -> add to count if yes or create new count if no
-                if let Some(id) = barcodes.get(seq_kmer) {
-                    match result_barcodes.get(id) {
-                        Some(count) => {
-                            result_barcodes.insert(id.to_string(), count + 1);
-                        }
-                        None => {
-                            result_barcodes.insert(id.to_string(), 1);
-                        }
+        if seq.len() < k {
+            continue;
+        }
+        // extract kmers (slices from Vect seq)
+        for kmer in seq.windows(k) {
+            // check if kmer is known -> add to count if yes or create new count if no
+            if let Some(id) = barcodes.barcodes.get(kmer) {
+                match result_barcodes.get(id) {
+                    Some(count) => {
+                        result_barcodes.insert(id.to_string(), count + 1);
+                    }
+                    None => {
+                        result_barcodes.insert(id.to_string(), 1);
                     }
                 }
             }
+
             // update kmer counter
             let nb_kmers = (seq.len() - k) as u64;
             kmer_counter += nb_kmers;
@@ -80,14 +79,9 @@ pub fn process_buffer<R: BufRead>(
 
 pub fn scan_reads(
     mut vect_files: Vec<PathBuf>,
-    barcodes: HashMap<String, String>,
-    k_size: &u8,
+    barcodes: &Barcodes,
     kmer_limit: Option<u64>,
-    genome_size: u64,
 ) -> (HashMap<String, i32>, u32, String) {
-    // initialise kmer size
-    let k = *k_size as usize;
-
     // sort vector of paths
     vect_files.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
 
@@ -96,8 +90,8 @@ pub fn scan_reads(
 
     for filename in vect_files {
         // set the reader
-        let reader = Reader::new(get_reader(&filename));
-        match process_buffer(k, kmer_limit, &barcodes, &mut result_barcodes, reader) {
+        let reader = Fastq::new(get_reader(&filename));
+        match process_buffer(kmer_limit, barcodes, &mut result_barcodes, reader) {
             Ok(kmer_count) => {
                 kmer_counter += kmer_count;
             }
@@ -107,7 +101,7 @@ pub fn scan_reads(
         }
     }
     // compute kmer coverage
-    let coverage = (kmer_counter as f64 / genome_size as f64).round() as u32;
+    let coverage = (kmer_counter as f64 / barcodes.genome_size as f64).round() as u32;
 
     (result_barcodes, coverage, "".to_string())
 }

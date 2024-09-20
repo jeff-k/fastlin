@@ -10,8 +10,10 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 clap = { version = "4.2", features = ["derive"] }
-seq_io = "0.3"
+bio-seq = "0.13"
+bio-streams = { path = "../bio-streams" }
 flate2 = "1.0"
 ahash = "0.8.3"
-boomphf = "0.6"
 indicatif = "0.17"
+
+
