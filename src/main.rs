@@ -1,3 +1,5 @@
+#![warn(clippy::pedantic)]
+
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fmt;
@@ -34,7 +36,7 @@ struct Args {
 
     /// minimum number of kmer occurences
     #[arg(short = 'c', long, default_value_t = 4)]
-    min_count: i32,
+    min_count: u32,
 
     /// minimum number of barcodes
     #[arg(short = 'n', long, default_value_t = 3)]
@@ -122,7 +124,7 @@ fn main() {
 
     // create output file
     let mut output_file =
-        File::create(args.output).expect("\n   Warning: couldn't not create output file.\n");
+        File::create(args.output).expect("\n   Warning: could not create output file.\n");
     output_file
         .write_all("#sample	data_type	k_cov	mixture	lineages	log_barcodes	log_errors\n".as_bytes())
         .expect("write failed!");
@@ -148,23 +150,28 @@ fn main() {
             InputType::Single | InputType::Paired => (kmer_limit, args.min_count),
         };
 
-        // scan input files
-        let (barcode_found, coverage, error_message) =
-            scan_reads(list_files.to_vec(), &barcodes, kmer_limit);
+        match scan_reads(list_files.to_vec(), &barcodes, kmer_limit) {
+            Ok(analysis) => {
+                // process barcodes
+                let (lineages, mixture, string_occurences) =
+                    analysis.process_barcodes(min_count, args.n_barcodes);
 
-        // Note: coverage used to be fixed to 1 for assemblies
+                let mixture = if mixture {
+                    "yes".to_string()
+                } else {
+                    "no".to_string()
+                };
 
-        // process barcodes
-        let (lineages, mixture, string_occurences) =
-            barcodes::process_barcodes(barcode_found, min_count, args.n_barcodes);
-
-        // write sample info into output file
-        writeln!(
-            output_file,
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            sample, data_type, coverage, mixture, lineages, string_occurences, error_message
-        )
-        .expect("Failed to write to file");
+                // write sample info into output file
+                writeln!(
+                    output_file,
+                    "{}\t{}\t{}\t{}\t{}\t{}\t",
+                    sample, data_type, analysis.coverage, mixture, lineages, string_occurences
+                )
+                .expect("Failed to write to file");
+            }
+            Err(e) => {}
+        };
     }
 
     println!("   done.");
