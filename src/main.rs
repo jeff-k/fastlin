@@ -1,4 +1,6 @@
 #![warn(clippy::pedantic)]
+#![allow(clippy::module_name_repetitions)]
+#![allow(clippy::struct_field_names)]
 
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -26,7 +28,7 @@ struct Args {
     #[arg(short = 'b', long)]
     barcodes: String,
 
-    /// output file [out_fastlin.txt]
+    /// output file [`out_fastlin.txt`]
     #[arg(short = 'o', long, default_value_t = String::from("out_fastlin.txt"))]
     output: String,
 
@@ -64,7 +66,7 @@ impl fmt::Display for InputType {
     }
 }
 
-fn get_data_type(name_sample: String, vec_files: Vec<PathBuf>) -> InputType {
+fn get_data_type(name_sample: &str, vec_files: &Vec<PathBuf>) -> InputType {
     // depending on the number of files, returns 'single', 'paired' or exit with error message
 
     let mut count_fasta = 0;
@@ -88,8 +90,7 @@ fn get_data_type(name_sample: String, vec_files: Vec<PathBuf>) -> InputType {
         InputType::Paired
     } else {
         eprintln!(
-            "error: the sample {} has {} fasta and {} fastq files",
-            name_sample, count_fasta, count_fastq
+            "error: the sample {name_sample} has {count_fasta} fasta and {count_fastq} fastq files"
         );
         process::abort();
     }
@@ -143,14 +144,14 @@ fn main() {
         pb.inc(1);
 
         // get sequencing type ('single' or 'paired' reads)
-        let data_type = get_data_type(sample.to_string(), list_files.to_vec());
+        let data_type = get_data_type(sample, list_files);
 
         let (kmer_limit, min_count) = match &data_type {
             InputType::Assembly => (None, 1),
             InputType::Single | InputType::Paired => (kmer_limit, args.min_count),
         };
 
-        match scan_reads(list_files.to_vec(), &barcodes, kmer_limit) {
+        match scan_reads((*list_files).clone(), &barcodes, kmer_limit) {
             Ok(analysis) => {
                 // process barcodes
                 let (lineages, mixture, string_occurences) =

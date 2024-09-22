@@ -1,12 +1,15 @@
+#![allow(clippy::cast_precision_loss)]
+
 //use bio_seq::prelude::*;
 use bio_streams::fastq::Fastq;
 use flate2::read::MultiGzDecoder;
 
 use std::collections::HashMap;
 //use std::error::Error;
+use std::borrow;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::Barcodes;
 
@@ -14,9 +17,12 @@ pub fn get_reader(path: &PathBuf) -> Box<dyn BufRead + Send> {
     let filename_str = path.to_str().unwrap();
     let file = match File::open(path) {
         Ok(file) => file,
-        Err(error) => panic!("Error opening compressed file: {:?}.", error),
+        Err(error) => panic!("Error opening compressed file: {error:?}."),
     };
-    if filename_str.ends_with(".gz") {
+    if Path::new(filename_str)
+        .extension()
+        .map_or(false, |ext| ext.eq_ignore_ascii_case("gz"))
+    {
         Box::new(BufReader::new(MultiGzDecoder::new(file)))
     } else {
         Box::new(BufReader::new(file))
@@ -28,7 +34,7 @@ pub struct Lineages(HashMap<String, Vec<u32>>);
 impl Lineages {
     fn format_data(&self) -> String {
         // convert hashmap into a string of the following format: key (nb,nb,nb), key2 (nb,nb,nb), ...
-        let mut sorted_keys: Vec<String> = self.0.keys().map(|s| s.to_owned()).collect();
+        let mut sorted_keys: Vec<String> = self.0.keys().map(borrow::ToOwned::to_owned).collect();
         sorted_keys.sort();
 
         sorted_keys
@@ -40,13 +46,13 @@ impl Lineages {
                     .map(ToString::to_string)
                     .collect::<Vec<String>>()
                     .join(", ");
-                format!("{} ({})", key, values_string)
+                format!("{key} ({values_string})")
             })
             .collect::<Vec<String>>()
             .join(", ")
     }
 
-    fn filter(self: Self, min_barcodes: usize) -> HashMap<String, u32> {
+    fn filter(self, min_barcodes: usize) -> HashMap<String, u32> {
         // filter lineages with at least min_barcodes barcodes
         let mut filtered_lineages: HashMap<String, u32> = HashMap::new();
 
@@ -58,7 +64,7 @@ impl Lineages {
         filtered_lineages
     }
 
-    fn non_inclusive(self: Self, min_barcodes: usize) -> Vec<(String, u32)> {
+    fn non_inclusive(self, min_barcodes: usize) -> Vec<(String, u32)> {
         let filtered: HashMap<String, u32> = self.filter(min_barcodes);
         let all_keys: Vec<String> = filtered.keys().cloned().collect();
         let mut final_vect = vec![];
@@ -82,7 +88,7 @@ impl Lineages {
 
 pub struct Analysis {
     pub counts: HashMap<(String, u32), u32>,
-    pub coverage: u32,
+    pub coverage: u64,
 }
 
 impl Analysis {
@@ -95,7 +101,7 @@ impl Analysis {
     }
 
     pub fn process_buffer<R: BufRead + Unpin>(
-        self: &mut Self,
+        &mut self,
         kmer_limit: Option<u64>,
         barcodes: &Barcodes,
         reader: Fastq<R>,
@@ -107,7 +113,7 @@ impl Analysis {
             let record_ready = match record {
                 Ok(record) => record,
                 Err(err) => {
-                    return Err(format!("Error in file: {}", err));
+                    return Err(format!("Error in file: {err}"));
                 }
             };
 
@@ -148,11 +154,7 @@ impl Analysis {
         Ok(kmer_counter)
     }
 
-    pub fn process_barcodes(
-        self: &Self,
-        min_count: u32,
-        min_barcodes: usize,
-    ) -> (String, bool, String) {
+    pub fn process_barcodes(&self, min_count: u32, min_barcodes: usize) -> (String, bool, String) {
         // merge barcode IDs to lineages
         let lineages: Lineages = self.merge_barcodes(min_count);
 
@@ -163,12 +165,12 @@ impl Analysis {
         let lineages: Vec<(String, u32)> = lineages.non_inclusive(min_barcodes);
 
         // check if mixture of lineages
-        let mixture: bool = if lineages.len() > 1 { true } else { false };
+        let mixture: bool = lineages.len() > 1;
 
         // convert to String
         let formatted_lineages: Vec<String> = lineages
             .iter()
-            .map(|(lineage_name, med_value)| format!("{} ({})", lineage_name, med_value))
+            .map(|(lineage_name, med_value)| format!("{lineage_name} ({med_value})"))
             .collect();
 
         let result = formatted_lineages.join(", ");
@@ -183,20 +185,17 @@ impl Analysis {
             // only consider barcode IDs with abundances >= minimum count
             if *nb_occurences >= min_occurences {
                 let lineage = &barcode_id.0;
-                match merged_lineages.get(lineage) {
-                    Some(_) => {
-                        merged_lineages
-                            .get_mut(lineage)
-                            .unwrap()
-                            .push(*nb_occurences);
-                    }
-                    None => {
-                        merged_lineages.insert(lineage.clone(), Vec::new());
-                        merged_lineages
-                            .get_mut(lineage)
-                            .unwrap()
-                            .push(*nb_occurences);
-                    }
+                if merged_lineages.contains_key(lineage) {
+                    merged_lineages
+                        .get_mut(lineage)
+                        .unwrap()
+                        .push(*nb_occurences);
+                } else {
+                    merged_lineages.insert(lineage.clone(), Vec::new());
+                    merged_lineages
+                        .get_mut(lineage)
+                        .unwrap()
+                        .push(*nb_occurences);
                 }
             }
         }
@@ -206,7 +205,7 @@ impl Analysis {
 
 fn median(values: &[u32]) -> u32 {
     let mut sorted_values = values.to_owned();
-    sorted_values.sort();
+    sorted_values.sort_unstable();
     let len = sorted_values.len();
     if len % 2 == 0 {
         (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2
@@ -229,7 +228,7 @@ pub fn scan_reads(
     for filename in files {
         // set the reader
         let reader = Fastq::new(get_reader(&filename));
-        match analysis.process_buffer(kmer_limit, &barcodes, reader) {
+        match analysis.process_buffer(kmer_limit, barcodes, reader) {
             Ok(kmer_count) => {
                 kmer_counter += kmer_count;
             }
@@ -240,7 +239,7 @@ pub fn scan_reads(
     }
 
     // compute kmer coverage
-    analysis.coverage = (kmer_counter as f64 / barcodes.genome_size as f64).round() as u32;
+    analysis.coverage = (kmer_counter as f64 / barcodes.genome_size as f64).round() as u64;
 
     Ok(analysis)
 }

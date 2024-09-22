@@ -13,10 +13,10 @@ pub struct Barcodes {
 impl Barcodes {
     pub fn from_file(path: PathBuf, kmer_size: usize) -> Result<Self, String> {
         print!(" . get barcodes and genome size");
-        Barcodes::from_string(read_to_string(path).unwrap(), kmer_size)
+        Barcodes::from_string(&read_to_string(path).unwrap(), kmer_size)
     }
 
-    pub fn from_string(barcode_csv: String, k: usize) -> Result<Self, String> {
+    pub fn from_string(barcode_csv: &str, k: usize) -> Result<Self, String> {
         // convert kmer_size to usize and calculate half kmer size
         let half_k_size: usize = (k - 1) / 2;
 
@@ -66,7 +66,7 @@ impl Barcodes {
             return Err("The genome size is missing from the barcode file".to_string());
         }
 
-        println!("	({} barcodes)", counter);
+        println!("	({counter} barcodes)");
 
         Ok(Barcodes {
             barcodes,

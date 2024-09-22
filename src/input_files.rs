@@ -18,7 +18,7 @@ fn list_files(dir: &str) -> std::io::Result<Vec<PathBuf>> {
     for path in fs::read_dir(dir)? {
         let path = path?.path();
         if let Some("gz") = path.extension().and_then(OsStr::to_str) {
-            result.push(path.to_owned());
+            result.push(path.clone());
         }
     }
     println!("	({} files)", result.len());
@@ -44,14 +44,11 @@ fn combine_files(vect_files: Vec<PathBuf>) -> HashMap<String, Vec<PathBuf>> {
                 sample = sample.trim_end_matches("_2").to_string();
             }
 
-            match results.get(&sample) {
-                Some(_vect_files) => {
-                    results.get_mut(&sample).unwrap().push(file);
-                }
-                None => {
-                    results.insert(sample.to_owned(), Vec::new());
-                    results.get_mut(&sample).unwrap().push(file);
-                }
+            if results.contains_key(&sample) {
+                results.get_mut(&sample).unwrap().push(file);
+            } else {
+                results.insert(sample.clone(), Vec::new());
+                results.get_mut(&sample).unwrap().push(file);
             }
         } else if filename.ends_with(".fas.gz")
             || filename.ends_with(".fasta.gz")
@@ -62,14 +59,11 @@ fn combine_files(vect_files: Vec<PathBuf>) -> HashMap<String, Vec<PathBuf>> {
                 .replace(".fasta.gz", "")
                 .replace(".fna.gz", "");
 
-            match results.get(&sample) {
-                Some(_vect_files) => {
-                    results.get_mut(&sample).unwrap().push(file);
-                }
-                None => {
-                    results.insert(sample.to_owned(), Vec::new());
-                    results.get_mut(&sample).unwrap().push(file);
-                }
+            if results.contains_key(&sample) {
+                results.get_mut(&sample).unwrap().push(file);
+            } else {
+                results.insert(sample.clone(), Vec::new());
+                results.get_mut(&sample).unwrap().push(file);
             }
         }
     }
