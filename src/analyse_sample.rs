@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 use crate::Barcodes;
 
-pub fn get_reader(path: &PathBuf) -> Box<dyn Reader<Seq<Dna>>> {
+pub fn get_reader(path: &PathBuf) -> Box<dyn Reader<Vec<u8>>> {
     let filename = path.to_str().unwrap();
     let file = match File::open(path) {
         Ok(file) => file,
@@ -28,7 +28,7 @@ pub fn get_reader(path: &PathBuf) -> Box<dyn Reader<Seq<Dna>>> {
         Box::new(Fastq::new(BufReader::new(file)))
     } else if filename.ends_with(".fasta.gz") || filename.ends_with(".fa.gz") {
         Box::new(Fasta::new(BufReader::new(MultiGzDecoder::new(file))))
-    } else if filename.ends_with(".fastq") || filename.ends_with(".fq") {
+    } else if filename.ends_with(".fasta") || filename.ends_with(".fa") {
         Box::new(Fasta::new(BufReader::new(file)))
     } else {
         panic!("Unrecognised file type");
@@ -110,7 +110,7 @@ impl Analysis {
         &mut self,
         kmer_limit: Option<u64>,
         barcodes: &Barcodes,
-        reader: Box<dyn Reader<Seq<Dna>>>,
+        reader: Box<dyn Reader<Vec<u8>>>,
     ) -> Result<u64, String> {
         let mut kmer_counter: u64 = 0;
 
