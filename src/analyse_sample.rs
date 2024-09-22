@@ -1,31 +1,37 @@
 #![allow(clippy::cast_precision_loss)]
 
-//use bio_seq::prelude::*;
+use bio_seq::prelude::*;
+use bio_streams::fasta::Fasta;
 use bio_streams::fastq::Fastq;
+use bio_streams::Reader;
 use flate2::read::MultiGzDecoder;
 
 use std::collections::HashMap;
 //use std::error::Error;
 use std::borrow;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::io::BufReader;
+use std::path::PathBuf;
 
 use crate::Barcodes;
 
-pub fn get_reader(path: &PathBuf) -> Box<dyn BufRead + Send> {
-    let filename_str = path.to_str().unwrap();
+pub fn get_reader(path: &PathBuf) -> Box<dyn Reader<Seq<Dna>>> {
+    let filename = path.to_str().unwrap();
     let file = match File::open(path) {
         Ok(file) => file,
         Err(error) => panic!("Error opening compressed file: {error:?}."),
     };
-    if Path::new(filename_str)
-        .extension()
-        .map_or(false, |ext| ext.eq_ignore_ascii_case("gz"))
-    {
-        Box::new(BufReader::new(MultiGzDecoder::new(file)))
+
+    if filename.ends_with(".fastq.gz") || filename.ends_with(".fq.gz") {
+        Box::new(Fastq::new(BufReader::new(MultiGzDecoder::new(file))))
+    } else if filename.ends_with(".fastq") || filename.ends_with(".fq") {
+        Box::new(Fastq::new(BufReader::new(file)))
+    } else if filename.ends_with(".fasta.gz") || filename.ends_with(".fa.gz") {
+        Box::new(Fasta::new(BufReader::new(MultiGzDecoder::new(file))))
+    } else if filename.ends_with(".fastq") || filename.ends_with(".fq") {
+        Box::new(Fasta::new(BufReader::new(file)))
     } else {
-        Box::new(BufReader::new(file))
+        panic!("Unrecognised file type");
     }
 }
 
@@ -100,11 +106,11 @@ impl Analysis {
         }
     }
 
-    pub fn process_buffer<R: BufRead + Unpin>(
+    pub fn process_buffer(
         &mut self,
         kmer_limit: Option<u64>,
         barcodes: &Barcodes,
-        reader: Fastq<R>,
+        reader: Box<dyn Reader<Seq<Dna>>>,
     ) -> Result<u64, String> {
         let mut kmer_counter: u64 = 0;
 
@@ -227,7 +233,7 @@ pub fn scan_reads(
 
     for filename in files {
         // set the reader
-        let reader = Fastq::new(get_reader(&filename));
+        let reader = get_reader(&filename);
         match analysis.process_buffer(kmer_limit, barcodes, reader) {
             Ok(kmer_count) => {
                 kmer_counter += kmer_count;
