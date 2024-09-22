@@ -171,7 +171,9 @@ fn main() {
                 )
                 .expect("Failed to write to file");
             }
-            Err(_e) => {}
+            Err(e) => {
+                println!("{e:?}")
+            }
         };
     }
 

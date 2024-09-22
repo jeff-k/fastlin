@@ -119,7 +119,8 @@ impl Analysis {
             let record_ready = match record {
                 Ok(record) => record,
                 Err(err) => {
-                    return Err(format!("Error in file: {err}"));
+                    continue;
+                    //return Err(format!("Error in file: {err}"));
                 }
             };
 
