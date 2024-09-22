@@ -170,7 +170,7 @@ fn main() {
                 )
                 .expect("Failed to write to file");
             }
-            Err(e) => {}
+            Err(_e) => {}
         };
     }
 

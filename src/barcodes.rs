@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use bio_seq::prelude::*;
 
 pub struct Barcodes {
-    pub barcodes: HashMap<Seq<Dna>, (String, usize)>,
+    pub barcodes: HashMap<Seq<Dna>, (String, u32)>,
     pub genome_size: u64,
     pub k: usize,
 }
@@ -21,11 +21,11 @@ impl Barcodes {
         let half_k_size: usize = (k - 1) / 2;
 
         // initialise Hashmap and genome size
-        let mut barcodes: HashMap<Seq<Dna>, (String, usize)> = HashMap::default();
+        let mut barcodes: HashMap<Seq<Dna>, (String, u32)> = HashMap::default();
         let mut genome_size: u64 = 0;
 
         // read barcode file
-        let mut counter: usize = 0;
+        let mut counter: u32 = 0;
         for l in barcode_csv.lines() {
             let inserts = l.split('\t');
             let collection = inserts.collect::<Vec<&str>>();

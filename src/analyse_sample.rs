@@ -3,7 +3,7 @@ use bio_streams::fastq::Fastq;
 use flate2::read::MultiGzDecoder;
 
 use std::collections::HashMap;
-use std::error::Error;
+//use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -28,19 +28,19 @@ pub struct Lineages(HashMap<String, Vec<u32>>);
 impl Lineages {
     fn format_data(&self) -> String {
         // convert hashmap into a string of the following format: key (nb,nb,nb), key2 (nb,nb,nb), ...
-        let mut sorted_keys: Vec<(String, usize)> = self.keys().collect();
+        let mut sorted_keys: Vec<String> = self.0.keys().map(|s| s.to_owned()).collect();
         sorted_keys.sort();
 
         sorted_keys
             .iter()
-            .map(|&key| {
-                let values = data.get(&key).unwrap();
+            .map(|key| {
+                let values = self.0.get(key).unwrap();
                 let values_string = values
                     .iter()
                     .map(ToString::to_string)
                     .collect::<Vec<String>>()
                     .join(", ");
-                format!("{} ({})", key.0, values_string)
+                format!("{} ({})", key, values_string)
             })
             .collect::<Vec<String>>()
             .join(", ")
@@ -50,7 +50,7 @@ impl Lineages {
         // filter lineages with at least min_barcodes barcodes
         let mut filtered_lineages: HashMap<String, u32> = HashMap::new();
 
-        for (lineage_id, nb) in &lineages {
+        for (lineage_id, nb) in &self.0 {
             if nb.len() >= min_barcodes {
                 filtered_lineages.insert(lineage_id.to_string(), median(nb));
             }
@@ -63,7 +63,7 @@ impl Lineages {
         let all_keys: Vec<String> = filtered.keys().cloned().collect();
         let mut final_vect = vec![];
 
-        for (lin, med_value) in lineages {
+        for (lin, med_value) in filtered {
             let mut not_included = true;
             for key in all_keys.clone() {
                 if key.starts_with(lin.as_str()) && lin != key {
@@ -116,11 +116,11 @@ impl Analysis {
             //let len_seq = seq.len();
 
             // only consider sequences long enough to have a kmer
-            if seq.len() < k {
+            if seq.len() < barcodes.k {
                 continue;
             }
             // extract kmers (slices from Vect seq)
-            for kmer in seq.windows(k) {
+            for kmer in seq.windows(barcodes.k) {
                 // check if kmer is known -> add to count if yes or create new count if no
                 if let Some(id) = barcodes.barcodes.get(kmer) {
                     match self.counts.get(id) {
@@ -149,7 +149,7 @@ impl Analysis {
     }
 
     pub fn process_barcodes(
-        self: Self,
+        self: &Self,
         min_count: u32,
         min_barcodes: usize,
     ) -> (String, bool, String) {
@@ -219,7 +219,7 @@ pub fn scan_reads(
     mut files: Vec<PathBuf>,
     barcodes: &Barcodes,
     kmer_limit: Option<u64>,
-) -> Result<Analysis, Err> {
+) -> Result<Analysis, String> {
     // sort vector of paths
     files.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
 
